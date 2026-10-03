@@ -1,0 +1,13 @@
+{
+  "name": "deck-gen",
+  "version": "1.0.0",
+  "description": "Turn a tech doc / design doc into an editable HTML slide deck",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

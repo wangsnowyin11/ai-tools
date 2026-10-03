@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeckGen — HTML deck editor</title>
+<style>
+:root {
+  --bg: #0d1117; --panel: #161b22; --panel-2: #1c222b; --border: #2a313c; --text: #e6edf3; --muted: #8b949e;
+  --accent: #4f8cff; --accent-2: #3b74e6; --danger: #f85149; --ok: #3fb950; --warn: #d29922; --pick: #f59e0b;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --left: 44%;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 var(--font); overflow: hidden; }
+button, select { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+
+header { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; margin-right: 6px; }
+.brand i { width: 20px; height: 14px; border-radius: 3px; background: linear-gradient(135deg, var(--accent), #a371f7); display: inline-block; }
+select { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; max-width: 280px; outline: none; }
+select:focus { border-color: var(--accent); }
+.status { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; white-space: nowrap; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.status.ok::before { background: var(--ok); }
+.status.dirty::before { background: var(--warn); }
+.status.err { color: #ffb3ae; } .status.err::before { background: var(--danger); }
+.status.sync::before { background: var(--accent); }
+.spacer { flex: 1; }
+.btn { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 11px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: #3d4654; background: #222a35; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: var(--accent-2); }
+.btn.sm { padding: 3px 8px; font-size: 12px; }
+.btn.toggle.on { background: var(--pick); border-color: var(--pick); color: #1a1205; font-weight: 600; }
+
+main { position: absolute; top: 48px; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: var(--left) 6px 1fr; }
+.resizer { background: var(--bg); transition: background .15s; cursor: col-resize; }
+.resizer:hover, .resizer.drag { background: var(--accent); }
+.panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); }
+.panel-h { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); min-height: 38px; }
+.panel-h h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; white-space: nowrap; }
+textarea { flex: 1; resize: none; margin: 8px; padding: 10px 12px; min-height: 0; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; outline: none; }
+textarea:focus { border-color: var(--accent); }
+#code { font: 12.5px/1.6 var(--mono); tab-size: 2; white-space: pre; overflow: auto; }
+#code::selection { background: rgba(245, 158, 11, .38); }
+.fname { font: 12px var(--mono); color: var(--text); opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+
+#chips { display: flex; gap: 4px; overflow-x: auto; flex: 1; scrollbar-width: none; }
+#chips button { flex: none; min-width: 24px; height: 22px; border-radius: 5px; border: 1px solid var(--border); background: var(--panel-2); font-size: 11px; color: var(--muted); }
+#chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+#chips button:hover { border-color: var(--accent); }
+
+/* Breadcrumb of the selected element */
+#crumbs { display: flex; align-items: center; gap: 2px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: #1a1508;
+  font: 11.5px var(--mono); overflow-x: auto; white-space: nowrap; scrollbar-width: none; min-height: 31px; }
+#crumbs .hint { font-family: var(--font); color: var(--muted); }
+#crumbs button { background: none; border: 0; color: #e8c37a; padding: 2px 5px; border-radius: 4px; }
+#crumbs button:hover { background: rgba(245,158,11,.15); }
+#crumbs button.leaf { background: rgba(245,158,11,.22); color: #ffd58a; }
+#crumbs .sep { color: #6b5a33; }
+
+#right .panel-h { justify-content: space-between; }
+#frameWrap { flex: 1; min-height: 0; position: relative; background: #0b1020; }
+#frameWrap.picking { box-shadow: inset 0 0 0 2px var(--pick); }
+#preview { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #0b1020; }
+#empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); text-align: center; line-height: 1.7; padding: 40px; pointer-events: none; }
+#empty code { font-family: var(--mono); color: var(--text); background: var(--panel-2); padding: 1px 6px; border-radius: 4px; }
+#slideNo { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 48px; text-align: center; }
+.navgrp { display: flex; align-items: center; gap: 6px; }
+
+#toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px); background: #222a35; border: 1px solid var(--border);
+  padding: 9px 14px; border-radius: 8px; opacity: 0; pointer-events: none; transition: all .2s; max-width: 70vw; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { border-color: var(--danger); color: #ffb3ae; }
+.hide { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>DeckGen</div>
+  <select id="deckSel" title="Decks in deck-gen/decks"></select>
+  <button class="btn sm" id="newBtn" title="Create a new deck file">+ New</button>
+  <button class="btn sm" id="importBtn" title="Import an .html deck from anywhere into decks/">Import…</button>
+  <span id="status" class="status">–</span>
+  <div class="spacer"></div>
+  <button class="btn" id="dlBtn" title="Download a copy">Download</button>
+  <button class="btn" id="popBtn" title="Open the deck in a new browser tab">Pop out ↗</button>
+  <button class="btn primary" id="presentBtn" title="Present fullscreen (Esc to exit)">▶ Present</button>
+  <input type="file" id="fileIn" accept=".html,.htm,text/html" class="hide">
+</header>
+
+<main>
+  <section class="panel" id="codePanel">
+    <div class="panel-h">
+      <h3>Deck HTML</h3>
+      <span class="fname" id="fname"></span>
+      <div id="chips"></div>
+      <button class="btn sm" id="pasteBtn" title="Paste HTML from the clipboard. Slide-only HTML is wrapped in the deck template automatically.">Paste HTML</button>
+    </div>
+    <div id="crumbs" class="hide"></div>
+    <textarea id="code" spellcheck="false" wrap="off" placeholder="Pick or create a deck above, drop a file into deck-gen/decks/, or paste HTML here."></textarea>
+  </section>
+
+  <div class="resizer" id="vres"></div>
+
+  <section class="panel" id="right">
+    <div class="panel-h">
+      <h3>Preview</h3>
+      <div class="navgrp">
+        <button class="btn sm toggle" id="selectBtn" title="Select mode: click anything in the preview to find its HTML (S to toggle, Esc to exit)">⌖ Select</button>
+        <span style="width:8px"></span>
+        <button class="btn sm" id="prevBtn" title="Previous slide">‹</button>
+        <span id="slideNo">–</span>
+        <button class="btn sm" id="nextBtn" title="Next slide">›</button>
+      </div>
+    </div>
+    <div id="frameWrap">
+      <iframe id="preview" title="Deck preview" sandbox="allow-scripts allow-popups" allow="fullscreen" allowfullscreen></iframe>
+      <div id="empty" class="hide">No slides yet.<br>Drop a deck into <code>deck-gen/decks/</code>, click <b>+ New</b>, or use <b>Paste HTML</b>.</div>
+    </div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const code = $('code'), frame = $('preview'), chips = $('chips'), sel = $('deckSel'), crumbs = $('crumbs');
+  const START = '<!-- SLIDES:START -->', END = '<!-- SLIDES:END -->';
+  const store = {
+    get(k) { try { return localStorage.getItem('deckgen.' + k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('deckgen.' + k, v); } catch {} },
+  };
+
+  let template = '';
+  let currentFile = null;   // name in decks/
+  let lastSynced = '';      // content last loaded from / saved to disk
+  let current = 0, total = 0;
+  let renderTimer = null, saveTimer = null, saving = false;
+  let selectMode = false;
+
+  // ---------- helpers ----------
+  function toast(msg, isErr = false, ms = 3200) {
+    const t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
+    clearTimeout(toast._t); toast._t = setTimeout(() => (t.className = ''), ms);
+  }
+  function status(text, cls = '') { const s = $('status'); s.textContent = text; s.className = 'status ' + cls; }
+  const isDirty = () => currentFile && code.value !== lastSynced;
+  const countSections = (html) => (html.match(/<section\b/gi) || []).length;
+  const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const enc = encodeURIComponent;
+
+  function wrap(slides, title) {
+    return template.replace('{{TITLE}}', escapeHtml(title || 'Presentation')).replace('{{SLIDES}}', slides.trim());
+  }
+  function split(html) {
+    const a = html.indexOf(START), b = html.indexOf(END);
+    if (a < 0 || b < 0 || b < a) return null;
+    return { before: html.slice(0, a + START.length), slides: html.slice(a + START.length, b), after: html.slice(b) };
+  }
+  function titleFrom(slides) {
+    const m = slides.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (!m) return null;
+    const d = document.createElement('div'); d.innerHTML = m[1];
+    return d.textContent.trim().replace(/\s+/g, ' ');
+  }
+  function setTitle(html, title) {
+    return title ? html.replace(/<title>[\s\S]*?<\/title>/i, '<title>' + escapeHtml(title) + '</title>') : html;
+  }
+  // Accept a full HTML document, or only <section> slides (optionally inside ``` fences).
+  function normalizeIncoming(text, keepWrapperFrom) {
+    let t = text.replace(/^\s*```(?:html)?\s*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+    if (/<html[\s>]/i.test(t) || /<!doctype/i.test(t)) return t;
+    const first = t.search(/<!--|<section/i);
+    if (first > 0) t = t.slice(first);
+    if (!/<section\b/i.test(t)) return null;
+    const base = (keepWrapperFrom && split(keepWrapperFrom)) || split(wrap('', 'Presentation'));
+    return setTitle(base.before, titleFrom(t)) + '\n' + t + '\n' + base.after;
+  }
+  async function api(path, opts = {}) {
+    const r = await fetch(path, opts);
+    if (!r.ok) { let m = `HTTP ${r.status}`; try { m = (await r.json()).error || m; } catch {} throw new Error(m); }
+    return r;
+  }
+
+  // ---------- source mapping (preview element ↔ editor text) ----------
+  // The preview gets an instrumented copy of the HTML: every start tag gets data-dg-src="<offset in editor>".
+  // The editor text and downloaded files are never modified.
+  const SKIP_TAGS = new Set(['html', 'head', 'meta', 'link', 'title', 'script', 'style', 'body', 'br', 'wbr']);
+  const RAW_TAGS = new Set(['script', 'style', 'title', 'textarea']);
+  const VOID_TAGS = new Set('area base br col embed hr img input link meta source track wbr'.split(' '));
+
+  function tagEnd(html, from) { // index just past the '>' that closes the tag starting at `from`
+    let q = null;
+    for (let j = from; j < html.length; j++) {
+      const c = html[j];
+      if (q) { if (c === q) q = null; }
+      else if (c === '"' || c === "'") q = c;
+      else if (c === '>') return j + 1;
+    }
+    return html.length;
+  }
+  function instrument(html) {
+    const lower = html.toLowerCase();
+    let out = '', i = 0;
+    const n = html.length;
+    while (i < n) {
+      const lt = html.indexOf('<', i);
+      if (lt < 0) { out += html.slice(i); break; }
+      out += html.slice(i, lt);
+      if (html.startsWith('<!--', lt)) {
+        const e = html.indexOf('-->', lt + 4), end = e < 0 ? n : e + 3;
+        out += html.slice(lt, end); i = end; continue;
+      }
+      const m = /^<([a-zA-Z][\w:-]*)/.exec(html.slice(lt, lt + 64));
+      if (!m) { out += '<'; i = lt + 1; continue; }
+      const tag = m[1].toLowerCase();
+      const end = tagEnd(html, lt + m[0].length);
+      let open = html.slice(lt, end);
+      if (!SKIP_TAGS.has(tag) && open.endsWith('>')) {
+        const selfClose = open.endsWith('/>');
+        open = open.slice(0, selfClose ? -2 : -1) + ` data-dg-src="${lt}"` + (selfClose ? '/>' : '>');
+      }
+      out += open; i = end;
+      if (RAW_TAGS.has(tag)) {
+        const close = lower.indexOf('</' + tag, i), stop = close < 0 ? n : close;
+        out += html.slice(i, stop); i = stop;
+      }
+    }
+    return out;
+  }
+  function elementEnd(html, pos) { // index just past the matching close tag of the element starting at pos
+    const m = /^<([a-zA-Z][\w:-]*)/.exec(html.slice(pos, pos + 64));
+    if (!m) return pos;
+    const tag = m[1].toLowerCase(), openEnd = tagEnd(html, pos + m[0].length);
+    if (VOID_TAGS.has(tag) || html[openEnd - 2] === '/') return openEnd;
+    const re = new RegExp('<!--|<(/?)' + tag.replace(/[-:]/g, '\\$&') + '(?=[\\s>/])', 'gi');
+    re.lastIndex = openEnd;
+    let depth = 1, mm;
+    while ((mm = re.exec(html))) {
+      if (mm[0] === '<!--') { const e = html.indexOf('-->', mm.index + 4); if (e < 0) break; re.lastIndex = e + 3; continue; }
+      if (mm[1]) { if (--depth === 0) return tagEnd(html, mm.index); }
+      else depth++;
+    }
+    return openEnd;
+  }
+
+  // Script injected into the preview only: hover outline, click to pick, Esc to exit.
+  const PICKER = `<script>(function(){
+    var on=false, sel=null;
+    var st=document.createElement('style');
+    st.textContent='.__dg_box{position:fixed;pointer-events:none;z-index:2147483646;border:2px solid #4f8cff;background:rgba(79,140,255,.10);border-radius:2px;display:none}'
+      +'.__dg_box.__dg_sel{border-color:#f59e0b;background:rgba(245,158,11,.14)}'
+      +'.__dg_tag{position:fixed;z-index:2147483647;pointer-events:none;font:11px/18px ui-monospace,Menlo,monospace;background:#4f8cff;color:#fff;padding:0 6px;border-radius:3px;white-space:nowrap;display:none}'
+      +'html.__dg_on,html.__dg_on *{cursor:crosshair!important}';
+    document.head.appendChild(st);
+    function mk(c){var d=document.createElement('div');d.className=c;document.documentElement.appendChild(d);return d;}
+    var hb=mk('__dg_box'), sb=mk('__dg_box __dg_sel'), tg=mk('__dg_tag');
+    function target(el){ if(!el||!el.closest) return null; var m=el.closest('.mermaid[data-dg-src]'); return m||el.closest('[data-dg-src]'); }
+    function label(el){ var s=el.tagName.toLowerCase(); if(el.id) s+='#'+el.id;
+      var c=(typeof el.className==='string'?el.className:'').split(/\\s+/).filter(function(x){return x&&x!=='active'&&x.indexOf('__dg')!==0;});
+      if(c.length) s+='.'+c.join('.'); return s; }
+    function place(b,el){ if(!el){b.style.display='none';return;} var r=el.getBoundingClientRect();
+      b.style.display='block'; b.style.left=r.left+'px'; b.style.top=r.top+'px'; b.style.width=r.width+'px'; b.style.height=r.height+'px'; return r; }
+    function visible(el){ var s=el&&el.closest('section.slide'); return el&&el.isConnected&&(!s||s.classList.contains('active')); }
+    function chain(el){ var out=[]; for(var e=el;e&&e!==document.body&&e!==document.documentElement;e=e.parentElement){
+        if(e.hasAttribute('data-dg-src')) out.unshift({label:label(e),pos:+e.getAttribute('data-dg-src')});
+        if(e.matches('section.slide')) break; } return out; }
+    function setOn(v){ on=v; document.documentElement.classList.toggle('__dg_on',v); if(!v){hb.style.display='none';tg.style.display='none';sel=null;sb.style.display='none';} }
+    document.addEventListener('mousemove',function(e){ if(!on) return; var t=target(e.target); var r=place(hb,t);
+      if(t&&r){ tg.textContent=label(t); tg.style.display='block'; tg.style.left=Math.max(0,r.left)+'px'; tg.style.top=Math.max(0,r.top-20)+'px'; } else tg.style.display='none'; },true);
+    document.addEventListener('mouseleave',function(){ hb.style.display='none'; tg.style.display='none'; });
+    ['mousedown','mouseup','dblclick'].forEach(function(t){ window.addEventListener(t,function(e){ if(on){e.preventDefault();e.stopPropagation();} },true); });
+    window.addEventListener('click',function(e){ if(!on) return; e.preventDefault(); e.stopPropagation();
+      var t=target(e.target); if(!t) return; sel=t; place(sb,t);
+      parent.postMessage({deck:'picked',pos:+t.getAttribute('data-dg-src'),chain:chain(t)},'*'); },true);
+    document.addEventListener('keydown',function(e){
+      if(e.key==='Escape'&&on){ setOn(false); parent.postMessage({deck:'selectMode',on:false},'*'); }
+      else if((e.key==='s'||e.key==='S')&&!e.metaKey&&!e.ctrlKey){ parent.postMessage({deck:'selectMode',on:!on},'*'); } },true);
+    window.addEventListener('message',function(e){ var d=e.data||{};
+      if(d.deck==='select') setOn(!!d.on);
+      else if(d.deck==='selectPos'){ var el=document.querySelector('[data-dg-src="'+d.pos+'"]'); if(el){ sel=el; place(sb,el); } } });
+    setInterval(function(){ if(sel){ if(visible(sel)) place(sb,sel); else sb.style.display='none'; } },250);
+    parent.postMessage({deck:'pickerReady'},'*');
+  })();<\/script>`;
+
+  function previewHtml(html) {
+    const inst = instrument(html);
+    const at = inst.toLowerCase().lastIndexOf('</body>');
+    return at < 0 ? inst + PICKER : inst.slice(0, at) + PICKER + inst.slice(at);
+  }
+
+  // ---------- preview ----------
+  function render(gotoIndex) {
+    if (typeof gotoIndex === 'number') current = gotoIndex;
+    frame.srcdoc = previewHtml(code.value);
+    $('empty').classList.toggle('hide', countSections(code.value) > 0);
+    updateChips();
+  }
+  function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(() => render(), 400); }
+  function post(msg) { try { frame.contentWindow.postMessage(msg, '*'); } catch {} }
+
+  window.addEventListener('message', (e) => {
+    if (e.source !== frame.contentWindow) return;
+    const d = e.data || {};
+    if (d.deck === 'ready') {
+      total = d.total;
+      if (current > total - 1) current = Math.max(0, total - 1);
+      post({ deck: 'goto', index: current }); updateNav();
+    } else if (d.deck === 'slide') { current = d.index; total = d.total; updateNav(); }
+    else if (d.deck === 'fullscreen') present();
+    else if (d.deck === 'pickerReady') { if (selectMode) post({ deck: 'select', on: true }); }
+    else if (d.deck === 'selectMode') setSelectMode(d.on);
+    else if (d.deck === 'picked') { selectSource(d.pos); showCrumbs(d.chain); }
+  });
+  function updateNav() {
+    $('slideNo').textContent = total ? `${current + 1} / ${total}` : '–';
+    [...chips.children].forEach((c, i) => c.classList.toggle('on', i === current));
+  }
+  function updateChips() {
+    const n = countSections(code.value);
+    if (chips.children.length !== n) {
+      chips.innerHTML = '';
+      for (let i = 0; i < n; i++) {
+        const b = document.createElement('button');
+        b.textContent = i + 1; b.title = 'Jump to slide ' + (i + 1);
+        b.onclick = () => jumpToSlide(i);
+        chips.appendChild(b);
+      }
+    }
+    updateNav();
+  }
+  function go(delta) { if (!total) return; current = Math.max(0, Math.min(total - 1, current + delta)); post({ deck: 'goto', index: current }); updateNav(); }
+  function scrollEditorTo(pos) {
+    const line = code.value.slice(0, pos).split('\n').length - 1;
+    code.scrollTop = Math.max(0, line * (parseFloat(getComputedStyle(code).lineHeight) || 20) - 60);
+    code.scrollLeft = 0;
+  }
+  function jumpToSlide(i) {
+    const re = /<section\b/gi; let m, k = 0, pos = 0;
+    while ((m = re.exec(code.value))) { if (k++ === i) { pos = m.index; break; } }
+    const sep = code.value.lastIndexOf('<!--', pos);
+    if (sep >= 0) { const between = code.value.slice(sep, pos); if (/SLIDE/i.test(between) && !/<section/i.test(between)) pos = sep; }
+    code.focus(); code.setSelectionRange(pos, pos); scrollEditorTo(pos);
+    current = i; post({ deck: 'goto', index: i }); updateNav();
+  }
+  function syncFromCaret() {
+    const idx = countSections(code.value.slice(0, code.selectionStart)) - 1;
+    if (idx >= 0 && idx !== current) { current = idx; post({ deck: 'goto', index: idx }); updateNav(); }
+  }
+  function present() {
+    setSelectMode(false);
+    const req = frame.requestFullscreen || frame.webkitRequestFullscreen;
+    if (!req) return toast('Fullscreen not supported here; use Pop out.', true);
+    Promise.resolve(req.call(frame)).then(() => frame.focus()).catch(() => toast('Fullscreen was blocked; try Pop out.', true));
+  }
+
+  // ---------- select mode ----------
+  function setSelectMode(on) {
+    selectMode = !!on;
+    $('selectBtn').classList.toggle('on', selectMode);
+    $('frameWrap').classList.toggle('picking', selectMode);
+    post({ deck: 'select', on: selectMode });
+    if (selectMode) {
+      crumbs.classList.remove('hide');
+      if (!crumbs.querySelector('button')) crumbs.innerHTML = '<span class="hint">Select mode: click any element in the preview to find its HTML. Esc to exit.</span>';
+    } else crumbs.classList.add('hide');
+  }
+  function selectSource(pos) {
+    if (!/^<[a-zA-Z]/.test(code.value.slice(pos, pos + 2))) { toast('Preview is out of date. Wait for it to refresh, then try again.', true); return; }
+    const end = elementEnd(code.value, pos);
+    code.focus();
+    code.setSelectionRange(pos, end, 'forward');
+    scrollEditorTo(pos);
+  }
+  function showCrumbs(chain) {
+    crumbs.innerHTML = '';
+    (chain || []).forEach((c, i) => {
+      if (i) { const s = document.createElement('span'); s.className = 'sep'; s.textContent = '›'; crumbs.appendChild(s); }
+      const b = document.createElement('button');
+      b.textContent = c.label; b.title = 'Select this element';
+      if (i === chain.length - 1) b.className = 'leaf';
+      b.onclick = () => {
+        [...crumbs.querySelectorAll('button')].forEach((x) => x.classList.toggle('leaf', x === b));
+        selectSource(c.pos); post({ deck: 'selectPos', pos: c.pos });
+      };
+      crumbs.appendChild(b);
+    });
+    crumbs.classList.remove('hide');
+  }
+
+  // ---------- deck files ----------
+  async function refreshList(selectName) {
+    const decks = await (await api('/api/decks')).json();
+    sel.innerHTML = '';
+    if (!decks.length) sel.add(new Option('— no decks yet —', ''));
+    for (const d of decks) sel.add(new Option(d.name, d.name));
+    const want = selectName ?? currentFile;
+    if (want && decks.some((d) => d.name === want)) sel.value = want;
+    return decks;
+  }
+  async function openDeck(name, { keepSlide = false, discard = false } = {}) {
+    clearTimeout(saveTimer);
+    if (isDirty() && !discard) await saveNow();
+    const text = await (await api('/api/decks/' + enc(name))).text();
+    currentFile = name; store.set('file', name);
+    sel.value = name; $('fname').textContent = name;
+    const upgraded = /<section\b/i.test(text) && !/<html[\s>]/i.test(text) ? normalizeIncoming(text) : null;
+    lastSynced = text;
+    code.value = upgraded || text;
+    crumbs.innerHTML = ''; setSelectMode(selectMode); // reset breadcrumb
+    render(keepSlide ? current : 0);
+    if (upgraded) { await saveNow(); toast('Wrapped slide-only file in the deck template.'); }
+    else status('Saved', 'ok');
+  }
+  async function saveNow() {
+    clearTimeout(saveTimer);
+    if (!currentFile || saving) return;
+    const body = code.value;
+    if (body === lastSynced) return;
+    saving = true; status('Saving…', 'sync');
+    try {
+      await api('/api/decks/' + enc(currentFile), { method: 'PUT', headers: { 'content-type': 'text/html' }, body });
+      lastSynced = body;
+      status(code.value === body ? 'Saved' : 'Unsaved changes', code.value === body ? 'ok' : 'dirty');
+    } catch (e) { status('Save failed', 'err'); toast('Save failed: ' + e.message, true, 6000); }
+    finally { saving = false; if (isDirty()) scheduleSave(); }
+  }
+  function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 700); }
+  async function createDeck(suggested, content) {
+    const raw = prompt('New deck file name (saved in deck-gen/decks/):', suggested || 'my-deck.html');
+    if (!raw) return null;
+    try {
+      const r = await (await api('/api/decks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: raw, content }) })).json();
+      await refreshList(r.name);
+      await openDeck(r.name);
+      return r.name;
+    } catch (e) { toast(e.message, true, 5000); return null; }
+  }
+  const slug = (s) => (s || 'deck').toLowerCase().replace(/&amp;|&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'deck';
+
+  // Live sync from disk (Claude or another editor writes the file)
+  function connectEvents() {
+    const es = new EventSource('/api/events');
+    es.onmessage = async (e) => {
+      const ev = JSON.parse(e.data);
+      if (ev.type === 'list' || ev.type === 'change') await refreshList().catch(() => {});
+      if (ev.type !== 'change' || ev.name !== currentFile) {
+        if (ev.type === 'change' && ev.exists && !currentFile) openDeck(ev.name);
+        return;
+      }
+      if (!ev.exists) { status('File deleted on disk', 'err'); return; }
+      const text = await (await api('/api/decks/' + enc(ev.name))).text();
+      if (text === lastSynced || text === code.value) { lastSynced = text; return; } // our own save echoing back
+      if (isDirty() && !confirm(`${ev.name} changed on disk. Load the new version and discard your unsaved edits?`)) return;
+      await openDeck(ev.name, { keepSlide: true, discard: true });
+      status('Synced from disk', 'sync');
+      toast(`Reloaded ${ev.name} from disk.`);
+    };
+    es.onerror = () => status(currentFile ? 'Reconnecting…' : 'Server offline', 'err');
+    es.onopen = () => { if (currentFile) status(isDirty() ? 'Unsaved changes' : 'Saved', isDirty() ? 'dirty' : 'ok'); };
+  }
+
+  // Paste HTML: replaces the slides in the open deck (keeping its theme), or creates a new deck
+  $('pasteBtn').onclick = async () => {
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch {}
+    if (!text) text = prompt('Paste the deck HTML here:') || '';
+    if (!text.trim()) return;
+    const html = normalizeIncoming(text, currentFile ? code.value : null);
+    if (!html) return toast('No <section class="slide"> found in the clipboard.', true, 5000);
+    const n = countSections(html);
+    if (!currentFile) { await createDeck(slug(titleFrom(html)) + '.html', html); }
+    else {
+      if (countSections(code.value) && !confirm(`Replace the slides in ${currentFile} with the pasted ${n} slides?`)) return;
+      code.value = html; render(0); await saveNow();
+    }
+    toast(`Loaded ${n} slides.` + (n > 8 ? ' (More than 8, consider trimming.)' : ''));
+  };
+
+  // ---------- wiring ----------
+  sel.onchange = () => sel.value && openDeck(sel.value).catch((e) => toast(e.message, true));
+  $('newBtn').onclick = () => createDeck('my-deck.html', wrap('', 'Presentation'));
+  $('importBtn').onclick = () => $('fileIn').click();
+  $('fileIn').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    const text = await f.text();
+    await createDeck(f.name, normalizeIncoming(text) || text);
+  };
+  $('selectBtn').onclick = () => setSelectMode(!selectMode);
+  $('presentBtn').onclick = present;
+  $('prevBtn').onclick = () => go(-1);
+  $('nextBtn').onclick = () => go(1);
+  $('popBtn').onclick = () => {
+    const url = URL.createObjectURL(new Blob([code.value], { type: 'text/html' }));
+    window.open(url + '#' + (current + 1), '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+  $('dlBtn').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([code.value], { type: 'text/html' }));
+    a.download = currentFile || slug((code.value.match(/<title>([\s\S]*?)<\/title>/i) || [])[1]) + '.html';
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+
+  code.addEventListener('input', () => {
+    scheduleRender();
+    if (currentFile) { status('Unsaved changes', 'dirty'); scheduleSave(); }
+  });
+  code.addEventListener('blur', () => saveNow());
+  code.addEventListener('click', syncFromCaret);
+  code.addEventListener('keyup', (e) => { if (e.key.startsWith('Arrow') || e.key.startsWith('Page')) syncFromCaret(); });
+  code.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '  '); }
+  });
+  window.addEventListener('beforeunload', (e) => { if (isDirty()) { saveNow(); e.preventDefault(); e.returnValue = ''; } });
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(); return; }
+    if (e.key === 'Escape' && selectMode) { setSelectMode(false); return; }
+    if (/^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement.tagName)) return;
+    if (e.key === 's' || e.key === 'S') setSelectMode(!selectMode);
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') go(1);
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(-1);
+  });
+
+  // Resizable split
+  const vres = $('vres');
+  vres.addEventListener('pointerdown', (e) => {
+    vres.setPointerCapture(e.pointerId); vres.classList.add('drag'); frame.style.pointerEvents = 'none';
+    const move = (ev) => document.documentElement.style.setProperty('--left', Math.min(75, Math.max(22, ev.clientX / innerWidth * 100)) + '%');
+    const up = () => {
+      vres.classList.remove('drag'); frame.style.pointerEvents = '';
+      vres.removeEventListener('pointermove', move); vres.removeEventListener('pointerup', up);
+      store.set('left', document.documentElement.style.getPropertyValue('--left'));
+    };
+    vres.addEventListener('pointermove', move); vres.addEventListener('pointerup', up);
+  });
+
+  // ---------- init ----------
+  (async function init() {
+    const left = store.get('left'); if (left) document.documentElement.style.setProperty('--left', left);
+    template = await (await fetch('template.html')).text();
+    try {
+      const decks = await refreshList();
+      const last = store.get('file');
+      const pick = decks.find((d) => d.name === last)?.name || decks[0]?.name;
+      if (pick) await openDeck(pick); else { render(0); status('No deck open'); }
+    } catch (e) { status('Server offline', 'err'); toast('Cannot reach the local server. Run: npm start', true, 8000); }
+    connectEvents();
+  })();
+})();
+</script>
+</body>
+</html>

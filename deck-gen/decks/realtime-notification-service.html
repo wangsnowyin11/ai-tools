@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realtime Notification Service</title>
+<style>
+/* ===== Theme — tweak these to restyle the whole deck ===== */
+:root {
+  --accent: #2563eb;
+  --accent-soft: #eef3ff;
+  --ink: #0f172a;
+  --body: #334155;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --bg: #ffffff;
+  --title-bg: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: #0b1020; overflow: hidden; font-family: var(--font); color: var(--ink); }
+
+/* 1280x720 canvas, scaled to fit the window */
+#stage { position: absolute; top: 50%; left: 50%; width: 1280px; height: 720px; background: var(--bg);
+  transform-origin: center center; overflow: hidden; box-shadow: 0 12px 48px rgba(0,0,0,.45); }
+.slide { position: absolute; inset: 0; padding: 60px 80px 64px; display: flex; flex-direction: column;
+  opacity: 0; visibility: hidden; transition: opacity .25s ease; }
+.slide.active { opacity: 1; visibility: visible; }
+
+/* Headings */
+.slide h2 { font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+.slide h2::after { content: ""; display: block; width: 56px; height: 4px; border-radius: 2px; background: var(--accent); margin-top: 14px; }
+.lead { font-size: 22px; color: var(--muted); margin: 18px 0 26px; line-height: 1.4; }
+.slide h2 + :not(.lead) { margin-top: 28px; }
+
+/* Title slide */
+.slide.title { justify-content: center; background: var(--title-bg); color: #fff; padding: 80px 96px; }
+.slide.title h1 { font-size: 60px; line-height: 1.08; letter-spacing: -.025em; max-width: 1020px; }
+.slide.title .subtitle { font-size: 26px; color: #cbd5e1; margin-top: 22px; max-width: 940px; line-height: 1.4; }
+.slide.title .meta { margin-top: 56px; font-size: 18px; color: #93c5fd; letter-spacing: .02em; }
+
+/* Agenda */
+ol.agenda { list-style: none; counter-reset: a; display: flex; flex-direction: column; }
+ol.agenda li { counter-increment: a; font-size: 26px; font-weight: 600; display: flex; align-items: baseline; gap: 24px;
+  padding: 15px 0; border-bottom: 1px solid var(--line); }
+ol.agenda li::before { content: counter(a, decimal-leading-zero); color: var(--accent); font-variant-numeric: tabular-nums; width: 36px; }
+ol.agenda li span { margin-left: auto; font-size: 18px; font-weight: 400; color: var(--muted); }
+
+/* Bullet points: <li><b>Term</b> — explanation</li> */
+ul.points { list-style: none; display: flex; flex-direction: column; gap: 18px; }
+ul.points li { font-size: 24px; line-height: 1.38; color: var(--body); padding-left: 30px; position: relative; }
+ul.points li::before { content: ""; position: absolute; left: 0; top: .52em; width: 11px; height: 11px; border-radius: 3px; background: var(--accent); }
+ul.points li b { color: var(--ink); font-weight: 650; }
+
+/* Two columns of cards */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.cols.three { grid-template-columns: 1fr 1fr 1fr; }
+.card { background: #f8fafc; border: 1px solid var(--line); border-radius: 14px; padding: 24px 28px; }
+.card h3 { font-size: 21px; color: var(--accent); margin-bottom: 16px; }
+.card ul.points { gap: 12px; }
+.card ul.points li { font-size: 19px; padding-left: 24px; }
+.card ul.points li::before { width: 9px; height: 9px; }
+
+/* Diagram + workflow */
+.diagram-layout { display: grid; grid-template-columns: 3fr 2fr; gap: 44px; flex: 1; min-height: 0; align-items: center; }
+.diagram-layout.stacked { grid-template-columns: 1fr; grid-template-rows: 1fr auto; gap: 20px; }
+.mermaid { display: flex; justify-content: center; align-items: center; min-height: 0; height: 100%;
+  font-family: var(--font); white-space: pre; color: transparent; }
+.mermaid[data-processed] { color: inherit; white-space: normal; }
+.mermaid svg { max-width: 100% !important; max-height: 440px; height: auto; }
+.diagram-layout.stacked .mermaid svg { max-height: 330px; }
+.mermaid-error { white-space: pre-wrap; color: #b91c1c; font: 14px/1.4 var(--mono); background: #fef2f2; border: 1px solid #fecaca; padding: 14px; border-radius: 8px; }
+ol.flow { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 15px; }
+.diagram-layout.stacked ol.flow { flex-direction: row; gap: 24px; }
+.diagram-layout.stacked ol.flow li { flex: 1; }
+ol.flow li { counter-increment: s; font-size: 19px; line-height: 1.38; color: var(--body); padding-left: 44px; position: relative; }
+ol.flow li::before { content: counter(s); position: absolute; left: 0; top: -1px; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 15px; display: grid; place-items: center; }
+ol.flow li b { color: var(--ink); }
+
+/* Table */
+table.compare { border-collapse: collapse; width: 100%; font-size: 20px; color: var(--body); }
+table.compare th { text-align: left; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 10px 16px; border-bottom: 2px solid var(--line); }
+table.compare td { padding: 14px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.compare td:first-child { font-weight: 650; color: var(--ink); }
+
+/* Callout + inline code */
+.callout { margin-top: auto; padding: 16px 22px; border-left: 4px solid var(--accent); background: var(--accent-soft);
+  border-radius: 8px; font-size: 20px; color: var(--ink); line-height: 1.4; }
+code { font-family: var(--mono); font-size: .88em; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; }
+
+/* Chrome */
+#counter { position: absolute; right: 28px; bottom: 20px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; z-index: 5; }
+#progress { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--accent); transition: width .25s; z-index: 5; }
+#nav { position: fixed; right: 16px; bottom: 14px; display: flex; gap: 6px; opacity: 0; transition: opacity .2s; z-index: 10; }
+body:hover #nav { opacity: .9; }
+#nav button { width: 34px; height: 34px; border-radius: 8px; border: 0; background: rgba(15,23,42,.75); color: #fff; font-size: 17px; cursor: pointer; }
+#nav button:hover { background: var(--accent); }
+
+@media print {
+  @page { size: 1280px 720px; margin: 0; }
+  html, body { background: #fff; overflow: visible; height: auto; }
+  #stage { position: static; transform: none !important; box-shadow: none; height: auto; overflow: visible; }
+  .slide { position: relative; opacity: 1; visibility: visible; height: 720px; break-after: page; }
+  #nav, #progress, #counter { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="stage">
+<!-- SLIDES:START -->
+<!-- ==================== SLIDE 1: Title ==================== -->
+<section class="slide title">
+  <h1>Realtime Notification Service</h1>
+  <p class="subtitle">One shared push pipeline: sub-second in-app notifications, no more client polling</p>
+  <p class="meta">Platform Messaging Team · Design review · Oct 2026</p>
+</section>
+
+<!-- ==================== SLIDE 2: Agenda ==================== -->
+<section class="slide">
+  <h2>Agenda</h2>
+  <ol class="agenda">
+    <li>Problem &amp; goals <span>why polling has to go</span></li>
+    <li>Architecture <span>components at a glance</span></li>
+    <li>Delivery flow <span>online and offline paths</span></li>
+    <li>Alternatives &amp; risks <span>what we traded off</span></li>
+    <li>Rollout &amp; asks <span>milestones, open questions</span></li>
+  </ol>
+</section>
+
+<!-- ==================== SLIDE 3: Problem & goals ==================== -->
+<section class="slide">
+  <h2>Problem &amp; goals</h2>
+  <p class="lead">Six teams poll for notifications separately: slow, wasteful, and duplicated.</p>
+  <div class="cols">
+    <div class="card">
+      <h3>Today</h3>
+      <ul class="points">
+        <li><b>~40k QPS</b> — wasted client polling traffic</li>
+        <li><b>Up to 30s</b> — notification delay</li>
+        <li><b>6 copies</b> — same logic rebuilt per team</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Goals</h3>
+      <ul class="points">
+        <li><b>&lt; 1s p99</b> — delivery to online clients</li>
+        <li><b>&gt; 90%</b> — reduction in polling traffic</li>
+        <li><b>At-least-once</b> — clients dedupe by ID</li>
+        <li><b>One SDK</b> — shared by every product team</li>
+      </ul>
+    </div>
+  </div>
+  <p class="callout">Out of scope: email and push delivery, rich templating (phase 2).</p>
+</section>
+
+<!-- ==================== SLIDE 4: Architecture ==================== -->
+<section class="slide">
+  <h2>Architecture</h2>
+  <p class="lead">Kafka decouples producers; Presence routes each event to the right WebSocket gateway.</p>
+  <div class="diagram-layout">
+    <pre class="mermaid">
+flowchart LR
+  prod["Product services"] --> pub["Publish API"]
+  pub --> kafka(["Kafka topic"])
+  kafka --> fan["Fanout workers"]
+  fan --> pres[("Redis Presence")]
+  fan --> inbox[("Cassandra Inbox")]
+  fan -->|"gRPC"| gw["Gateway nodes"]
+  gw -->|"WebSocket"| client["Clients"]
+    </pre>
+    <ol class="flow">
+      <li><b>Publish API</b> — validates the schema and rate-limits each producer</li>
+      <li><b>Kafka</b> — partitioned by user_id, so ordering holds per user</li>
+      <li><b>Fanout</b> — writes to Inbox, then looks up the user in Presence</li>
+      <li><b>Gateway</b> — about 200k sockets per node; pushes to the client</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 5: Delivery flow ==================== -->
+<section class="slide">
+  <h2>Delivery flow</h2>
+  <p class="lead">Live push when the user is online; Inbox catch-up guarantees eventual delivery.</p>
+  <div class="diagram-layout">
+    <pre class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant G as Gateway
+  participant F as Fanout
+  participant I as Inbox
+  C->>G: Connect with session token
+  G->>G: Register in Presence, 60s TTL
+  F->>I: Store event
+  F->>G: Forward if online
+  G->>C: Push over WebSocket
+  C-->>G: ACK, retried up to 3x
+  C->>I: On reconnect, GET inbox since cursor
+    </pre>
+    <ol class="flow">
+      <li><b>Connect</b> — gateway registers user to node; heartbeats refresh the TTL</li>
+      <li><b>Store first</b> — every event lands in Inbox (30-day TTL)</li>
+      <li><b>Push and ACK</b> — unACKed events retry 3 times</li>
+      <li><b>Catch up</b> — reconnecting clients read Inbox, then go live</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 6: Alternatives & risks ==================== -->
+<section class="slide">
+  <h2>Alternatives &amp; risks</h2>
+  <p class="lead">WebSocket plus our own fanout beats the alternatives on latency, ACKs, and cost.</p>
+  <table class="compare">
+    <tr><th>Option / risk</th><th>Why not / mitigation</th></tr>
+    <tr><td>Longer polling</td><td>Cheap, but delays get worse and duplication stays</td></tr>
+    <tr><td>Server-Sent Events</td><td>No client ACK channel; weaker mobile support</td></tr>
+    <tr><td>Managed pub/sub</td><td>About 3x the cost at our scale; data residency concerns</td></tr>
+    <tr><td>Reconnect storms</td><td>Jittered reconnects plus connection draining on deploy</td></tr>
+    <tr><td>Hot partitions</td><td>Cap fanout per event; separate broadcast path</td></tr>
+  </table>
+</section>
+
+<!-- ==================== SLIDE 7: Rollout & asks ==================== -->
+<section class="slide">
+  <h2>Rollout  Milestones & Requirements</h2>
+  <p class="lead">Three milestones from staging to all six teams by Q1.</p>
+  <ul class="points">
+    <li><b>M1 · Nov</b> — Gateway and Presence in staging; internal dogfood</li>
+    <li><b>M2 · Dec</b> — two pilot teams behind a flag, 5% of traffic</li>
+    <li><b>M3 · Q1</b> — all six teams migrated; client polling deprecated</li>
+    <li><b>Capacity</b> — about 40 gateway nodes for 8M peak connections, plus 25% headroom</li>
+  </ul>
+  <p class="callout"><b>Decisions needed:</b> per-team quotas at launch? Long-term owner of the client SDK?</p>
+</section>
+<!-- SLIDES:END -->
+<div id="counter"></div>
+<div id="progress"></div>
+</div>
+<div id="nav"><button data-a="prev" title="Previous (←)">‹</button><button data-a="next" title="Next (→)">›</button><button data-a="fs" title="Fullscreen (F)">⛶</button></div>
+
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  var slides = Array.prototype.slice.call(stage.querySelectorAll('section.slide'));
+  var counter = document.getElementById('counter'), progress = document.getElementById('progress');
+  var embedded = window.parent !== window, i = 0;
+
+  function fit() {
+    var s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    stage.style.transform = 'translate(-50%,-50%) scale(' + s + ')';
+  }
+  function show(n, silent) {
+    if (!slides.length) { counter.textContent = ''; return; }
+    i = Math.max(0, Math.min(slides.length - 1, n | 0));
+    slides.forEach(function (s, k) { s.classList.toggle('active', k === i); });
+    counter.textContent = (i + 1) + ' / ' + slides.length;
+    progress.style.width = ((i + 1) / slides.length * 100) + '%';
+    if (embedded && !silent) parent.postMessage({ deck: 'slide', index: i, total: slides.length }, '*');
+    if (!embedded) { try { history.replaceState(null, '', '#' + (i + 1)); } catch (e) {} }
+  }
+  function fullscreen() {
+    var el = document.documentElement;
+    if (document.fullscreenElement) return document.exitFullscreen();
+    if (el.requestFullscreen) el.requestFullscreen().catch(function () { if (embedded) parent.postMessage({ deck: 'fullscreen' }, '*'); });
+    else if (embedded) parent.postMessage({ deck: 'fullscreen' }, '*');
+  }
+  document.addEventListener('keydown', function (e) {
+    var k = e.key;
+    if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'PageDown' || k === ' ') { show(i + 1); e.preventDefault(); }
+    else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp') { show(i - 1); e.preventDefault(); }
+    else if (k === 'Home') show(0);
+    else if (k === 'End') show(slides.length - 1);
+    else if (k === 'f' || k === 'F') fullscreen();
+  });
+  document.getElementById('nav').addEventListener('click', function (e) {
+    var a = e.target.getAttribute('data-a');
+    if (a === 'prev') show(i - 1); else if (a === 'next') show(i + 1); else if (a === 'fs') fullscreen();
+  });
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (d.deck === 'goto') show(d.index, true);
+    else if (d.deck === 'next') show(i + 1);
+    else if (d.deck === 'prev') show(i - 1);
+  });
+  window.addEventListener('resize', fit);
+  fit();
+  var start = embedded ? 0 : (parseInt((location.hash || '').slice(1), 10) || 1) - 1;
+  show(start, true);
+  if (embedded) parent.postMessage({ deck: 'ready', index: i, total: slides.length }, '*');
+})();
+</script>
+<script type="module">
+// Diagrams: write Mermaid source inside <pre class="mermaid">…</pre>. Needs internet to load Mermaid.
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({
+  startOnLoad: false, securityLevel: 'strict', theme: 'base',
+  themeVariables: {
+    fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font'),
+    fontSize: '17px', primaryColor: '#eef3ff', primaryBorderColor: '#2563eb', primaryTextColor: '#0f172a',
+    secondaryColor: '#f1f5f9', tertiaryColor: '#ffffff', lineColor: '#64748b', clusterBkg: '#f8fafc', clusterBorder: '#cbd5e1',
+    actorBkg: '#eef3ff', actorBorder: '#2563eb', noteBkgColor: '#fef9c3', noteBorderColor: '#eab308'
+  },
+  flowchart: { curve: 'basis', padding: 14, nodeSpacing: 40, rankSpacing: 50 },
+  sequence: { actorMargin: 60, mirrorActors: false }
+});
+for (const el of document.querySelectorAll('pre.mermaid, div.mermaid')) {
+  const src = el.textContent;
+  try { await mermaid.run({ nodes: [el] }); }
+  catch (err) {
+    el.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'mermaid-error';
+    box.textContent = 'Diagram error: ' + (err && err.message ? err.message.split('\n')[0] : err) + '\n\n' + src.trim();
+    el.appendChild(box); el.setAttribute('data-processed', 'true');
+  }
+}
+</script>
+</body>
+</html>
