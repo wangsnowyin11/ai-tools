@@ -9,6 +9,10 @@ Give me easy to understand and concise summary covers the topics of
 6. Generate the artifact as .md file for easier followup and iteration
 
 
+**> Failure Mode Analysis**
+Enumerate failure modes:
+
+
 **> System Gaps & Improvement Plan**
 Read through the docs under ./vllm/docs and the codebase, list me the 3 major improvement / new feature opportunities and use easy-to-understand (no analogy) and concise words follow the framing of
 1. What problem / gap
@@ -36,3 +40,4 @@ read the doc /Users/xxxxxxx.md and generate the presentation deck content for me
 3. Contain main opening and agenda content
 4. Include clean diagram with quick workflow description of the diagram when necessary
 5. After fully generate the deck content, also generate the corresponding HTML version including the content you generated for the real presentation
+
